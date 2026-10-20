@@ -1,0 +1,713 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>LostNet en vivo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Instrument+Sans:ital,wght@0,400..700;1,400&family=Martian+Mono:wght@400..600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+/* Layout: consola de radar a pantalla completa. Mapa 3D al fondo, HUD fijo arriba y abajo, panel de contenido a la derecha (hoja inferior en celular). Tema oscuro único por diseño. */
+:root{
+  --bg:#061110; --surface:#0C1B19; --surface-2:#112523; --line:rgba(140,242,192,.16); --line-strong:rgba(140,242,192,.38);
+  --text:#E3EEE9; --muted:#8EA79F; --mint:#8CF2C0; --signal:#FF6B3D; --amber:#FFB547;
+  --p1:#86BCFF; --p2:#8CF2C0; --p3:#CFE56E; --p4:#FFB547; --p5:#FF8F66;
+  --shade:rgba(3,8,7,.92);
+  --f-display:'Bricolage Grotesque', 'Avenir Next', 'Segoe UI', sans-serif;
+  --f-body:'Instrument Sans', 'Helvetica Neue', Arial, sans-serif;
+  --f-mono:'Martian Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+  color-scheme:dark;
+}
+html,body{height:100%; overflow:hidden}
+body{background:var(--bg); color:var(--text); font-family:var(--f-body); font-size:16px; line-height:1.5; -webkit-font-smoothing:antialiased}
+button{font:inherit; color:inherit; cursor:pointer}
+button:focus-visible, input:focus-visible{outline:2px solid var(--mint); outline-offset:3px}
+h1,h2,h3,h4{font-family:var(--f-display); margin:0; line-height:1.05; text-wrap:balance; font-weight:700; letter-spacing:-.01em}
+p{margin:0}
+.label{font-family:var(--f-mono); font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--muted)}
+@media (prefers-reduced-motion: reduce){ *{animation:none!important; transition:none!important} }
+
+#scene{position:fixed; inset:0; z-index:0}
+#scene canvas{display:block}
+#labels{position:fixed; inset:0; z-index:2; pointer-events:none}
+.nlabel{position:absolute; transform:translate(-50%, -140%); font-family:var(--f-mono); font-size:.7rem; white-space:nowrap; padding:4px 8px; background:var(--surface); border:1px solid var(--c, var(--line-strong)); color:var(--text); pointer-events:auto; cursor:pointer; transition:opacity .4s}
+.nlabel b{color:var(--c); font-weight:600}
+.nlabel.done{opacity:.55}
+.nlabel[hidden]{display:none}
+
+/* oscuridad: solo ves alrededor de donde crees que está tu cursor */
+#dark{position:fixed; inset:0; z-index:20; pointer-events:none; opacity:0; transition:opacity 1.2s;
+  background:radial-gradient(circle var(--r,90px) at var(--x,50%) var(--y,50%), transparent 0, rgba(3,8,7,.55) 55%, rgba(2,5,4,.975) 100%)}
+body.lost-vision #dark{opacity:1}
+body.lost-cursor, body.lost-cursor *{cursor:none!important}
+#ghost{position:fixed; left:0; top:0; z-index:60; width:22px; height:22px; margin:-11px 0 0 -11px; pointer-events:none; display:none}
+body.lost-cursor #ghost{display:block}
+#ghost svg{width:22px; height:22px}
+#ghost span{position:absolute; left:26px; top:0; font-family:var(--f-mono); font-size:.62rem; color:var(--signal); white-space:nowrap}
+
+/* ---------- overlays ---------- */
+.overlay{position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:var(--shade);
+  padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); padding-block:24px; overflow:auto}
+.overlay[hidden]{display:none!important}
+.sheet{width:min(720px, 100%); background:var(--surface); border:1px solid var(--line-strong); padding:clamp(22px, 4vw, 40px); display:grid; gap:22px}
+.intro h1{font-size:clamp(2.6rem, 7vw, 4.6rem)}
+.intro .lede{font-size:1.15rem; color:var(--muted); max-width:52ch}
+.docrow{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px}
+.doc{border:1px solid var(--line); padding:14px; display:grid; gap:4px; background:var(--surface-2)}
+.doc b{font-family:var(--f-display); font-size:1.1rem}
+.doc span{font-size:.85rem; color:var(--muted)}
+.btn{display:inline-flex; align-items:center; justify-content:center; gap:10px; border:1px solid var(--line-strong); background:transparent; padding:13px 18px; font-family:var(--f-mono); font-size:.8rem; letter-spacing:.04em; text-transform:uppercase}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--mint); color:var(--bg); border-color:var(--mint); font-weight:600}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.signal{background:var(--signal); border-color:var(--signal); color:#160704; font-weight:600}
+.btn[disabled]{opacity:.35; cursor:not-allowed}
+.row{display:flex; flex-wrap:wrap; gap:10px}
+
+.loss{width:min(860px,100%); display:grid; gap:26px}
+.loss .big{font-family:var(--f-display); font-size:clamp(2.6rem, 8vw, 5.8rem); font-weight:800; line-height:.95; letter-spacing:-.025em}
+.loss .big em{font-style:normal; color:var(--signal)}
+.loss .lede{font-size:1.15rem; color:var(--muted); max-width:56ch}
+.phone{display:grid; grid-template-columns:auto 1fr; gap:18px; align-items:center; border:1px solid var(--line); padding:16px 18px; background:var(--surface)}
+.phone svg{width:44px; height:68px}
+.phone .stats{display:grid; gap:2px; font-family:var(--f-mono); font-size:.78rem; color:var(--muted)}
+.phone .stats b{color:var(--text); font-weight:500}
+.attempts{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px}
+.attempt{border:1px solid var(--line); background:var(--surface); padding:16px; display:grid; gap:10px; align-content:start}
+.attempt h3{font-size:1.15rem}
+.attempt p.res{font-family:var(--f-mono); font-size:.74rem; color:var(--muted); min-height:3.2em}
+.attempt p.res.bad{color:var(--signal)}
+.attempt.go{border-color:var(--mint)}
+.scan{height:4px; background:var(--surface-2); overflow:hidden}
+.scan i{display:block; height:100%; width:0; background:var(--muted); transition:width 2.4s linear}
+.shake{animation:shake .14s 6}
+@keyframes shake{0%,100%{transform:translate(0)}25%{transform:translate(-5px,3px)}75%{transform:translate(5px,-3px)}}
+
+/* ---------- HUD ---------- */
+.hud{position:fixed; left:0; right:0; z-index:30; pointer-events:none;
+  padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px))}
+.hud > *{pointer-events:auto}
+.top{top:0; padding-top:calc(env(safe-area-inset-top, 0px) + 14px); display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap}
+.brand{display:flex; gap:12px; align-items:center}
+.brand .mark{width:34px; height:34px}
+.brand b{font-family:var(--f-display); font-size:1.3rem; display:block; line-height:1}
+.brand .label{display:block; margin-top:3px}
+.caps{display:flex; gap:6px; flex-wrap:wrap; align-items:center}
+.cap{font-family:var(--f-mono); font-size:.66rem; letter-spacing:.06em; text-transform:uppercase; padding:6px 9px; border:1px solid rgba(255,107,61,.5); color:var(--signal); background:var(--surface); display:flex; gap:6px; align-items:center}
+.cap::before{content:""; width:7px; height:7px; border-radius:50%; background:currentColor}
+.cap.ok{border-color:var(--line-strong); color:var(--mint)}
+.tools{display:flex; gap:8px}
+.tools .btn{padding:9px 12px; font-size:.7rem; background:var(--surface)}
+.bottom{bottom:0; padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 16px)}
+.console{width:min(460px, 100%); background:var(--surface); border:1px solid var(--line-strong); padding:16px 18px; display:grid; gap:12px}
+.console .head{display:flex; justify-content:space-between; gap:10px}
+.console .head .r{font-family:var(--f-mono); font-size:.8rem; color:var(--amber)}
+.console p.msg{font-size:.98rem}
+.console .foot{display:flex; justify-content:space-between; gap:10px; font-family:var(--f-mono); font-size:.66rem; color:var(--muted); flex-wrap:wrap}
+.timer{font-variant-numeric:tabular-nums}
+
+#toast{position:fixed; z-index:35; top:calc(env(safe-area-inset-top, 0px) + 74px); right:max(16px, calc(env(safe-area-inset-right, 0px) + 16px)); width:min(360px, calc(100% - 32px));
+  background:var(--surface-2); border:1px solid var(--mint); padding:14px 16px; display:grid; gap:4px; transform:translateY(-12px); opacity:0; transition:.35s; text-align:left}
+#toast.show{transform:none; opacity:1}
+#toast .label{color:var(--mint)}
+#toast b{font-family:var(--f-display); font-size:1.05rem}
+#toast span{font-size:.9rem; color:var(--muted)}
+#keyfail{position:fixed; z-index:61; left:50%; bottom:calc(env(safe-area-inset-bottom, 0px) + 180px); transform:translateX(-50%); font-family:var(--f-mono); font-size:.8rem; color:var(--signal); background:var(--surface); border:1px solid rgba(255,107,61,.55); padding:8px 12px; opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap}
+#keyfail.show{opacity:1}
+
+/* ---------- panel ---------- */
+#panel{position:fixed; z-index:45; top:0; right:0; bottom:0; width:min(760px, 100%); background:var(--surface); border-left:1px solid var(--line-strong);
+  display:grid; grid-template-rows:auto 1fr auto; transform:translateX(102%); transition:transform .45s cubic-bezier(.2,.8,.2,1);
+  padding-top:env(safe-area-inset-top, 0px); padding-bottom:env(safe-area-inset-bottom, 0px)}
+#panel.open{transform:none}
+.ph{padding:20px max(24px, env(safe-area-inset-right, 0px)) 18px 28px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; gap:16px; align-items:flex-start}
+.ph h2{font-size:clamp(1.7rem, 3.4vw, 2.5rem); margin-top:6px}
+.ph .label b{color:var(--pc); font-weight:600}
+.x{border:1px solid var(--line); background:transparent; width:40px; height:40px; flex:none; font-size:1.2rem}
+.pb{overflow-y:auto; padding:24px max(24px, env(safe-area-inset-right, 0px)) 32px 28px; display:grid; gap:28px; align-content:start; min-width:0}
+.pf{border-top:1px solid var(--line); padding:12px max(24px, env(safe-area-inset-right, 0px)) 12px 28px; display:flex; justify-content:space-between; align-items:center; gap:10px}
+.pf .label{text-align:center}
+.restored{border:1px solid var(--pc); padding:14px 16px; display:grid; gap:4px; background:color-mix(in srgb, var(--pc) 8%, transparent)}
+.restored .label{color:var(--pc)}
+.blk{display:grid; gap:12px; min-width:0}
+.blk > h3{font-size:1.45rem}
+.blk > .label{color:var(--pc)}
+.blk p{max-width:68ch}
+.grid2{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px}
+.grid3{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px}
+.tile{border:1px solid var(--line); background:var(--surface-2); padding:14px; display:grid; gap:6px; align-content:start; min-width:0}
+.tile b{font-family:var(--f-display); font-size:1.08rem}
+.tile span{font-size:.92rem; color:var(--muted)}
+.tile.on{border-color:var(--pc)}
+.tile.on b::after{content:"  elegida"; font-family:var(--f-mono); font-size:.6rem; letter-spacing:.06em; text-transform:uppercase; color:var(--pc)}
+.tile.off{opacity:.62}
+.why{border-left:2px solid var(--pc); padding:4px 0 4px 14px}
+.why .label{color:var(--pc); display:block; margin-bottom:2px}
+.chips{display:flex; flex-wrap:wrap; gap:6px}
+.chips span{font-family:var(--f-mono); font-size:.66rem; letter-spacing:.04em; padding:4px 8px; border:1px solid var(--pc); color:var(--pc)}
+.metric{font-family:var(--f-display); font-weight:800; font-size:clamp(2.6rem, 6vw, 3.8rem); line-height:1; color:var(--pc); font-variant-numeric:tabular-nums}
+.formula{font-family:var(--f-mono); font-size:.82rem; background:var(--bg); border:1px solid var(--line); padding:12px 14px; overflow-x:auto; white-space:nowrap}
+dl.ficha{margin:0; display:grid; gap:0}
+dl.ficha div{display:grid; grid-template-columns:150px minmax(0,1fr); gap:14px; padding:10px 0; border-top:1px solid var(--line)}
+dl.ficha dt{font-family:var(--f-mono); font-size:.66rem; letter-spacing:.06em; text-transform:uppercase; color:var(--pc); padding-top:3px}
+dl.ficha dd{margin:0}
+.tw{overflow-x:auto}
+table{border-collapse:collapse; width:100%; min-width:460px; font-size:.92rem}
+th{font-family:var(--f-mono); font-size:.64rem; letter-spacing:.06em; text-transform:uppercase; text-align:left; color:var(--pc); padding:8px 10px 8px 0; border-bottom:1px solid var(--line-strong)}
+td{padding:9px 10px 9px 0; border-bottom:1px solid var(--line); vertical-align:top}
+.demo{border:1px dashed var(--line-strong); padding:16px; display:grid; gap:12px; background:var(--bg)}
+.demo .label{color:var(--pc)}
+.demo .out{font-family:var(--f-mono); font-size:.78rem; word-break:break-all; color:var(--text)}
+.demo input{width:100%; background:var(--surface); border:1px solid var(--line-strong); color:var(--text); padding:10px 12px; font:inherit}
+.bar{height:10px; background:var(--surface-2); position:relative; overflow:hidden}
+.bar i{position:absolute; inset:0 auto 0 0; width:0; background:var(--pc)}
+.servers{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.srv{border:1px solid var(--line-strong); padding:12px; display:grid; gap:2px; font-size:.9rem}
+.srv b{font-family:var(--f-display)}
+.srv.down{border-color:var(--signal); color:var(--signal)}
+.srv.live{border-color:var(--pc)}
+.nest{border:1px solid var(--pc); padding:14px; display:grid; gap:10px}
+.nest .nest{border-style:dashed}
+.nest b{font-family:var(--f-display); color:var(--pc); font-size:1.08rem}
+ol.steps{margin:0; padding-left:1.2em; display:grid; gap:6px}
+ol.steps li::marker{font-family:var(--f-mono); color:var(--pc)}
+ul.pl{margin:0; padding-left:1.1em; display:grid; gap:6px}
+ul.pl li::marker{color:var(--pc)}
+
+/* final */
+.found h1{font-size:clamp(2.8rem, 8vw, 5.4rem)}
+.found .cmp{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+.found .cmp div{border:1px solid var(--line); padding:16px; display:grid; gap:4px}
+.found .cmp .n{font-family:var(--f-display); font-weight:800; font-size:2.4rem; font-variant-numeric:tabular-nums}
+.found .cmp .good .n{color:var(--mint)} .found .cmp .bad .n{color:var(--signal)}
+.faq{display:grid; gap:14px}
+.faq .q{border-top:1px solid var(--line); padding-top:14px; display:grid; gap:6px}
+.faq h3{font-size:1.2rem}
+
+@media (max-width:760px){
+  .docrow, .attempts, .grid3{grid-template-columns:1fr}
+  .grid2{grid-template-columns:1fr}
+  .top{gap:8px}
+  .brand .label{display:none}
+  .caps .cap{padding:5px 7px; font-size:.6rem}
+  .tools .btn span.t{display:none}
+  #panel{top:auto; height:88%; width:100%; border-left:none; border-top:1px solid var(--line-strong); transform:translateY(102%)}
+  #panel.open{transform:none}
+  dl.ficha div{grid-template-columns:1fr; gap:2px}
+  .ph, .pb, .pf{padding-left:max(18px, env(safe-area-inset-left, 0px))}
+  .console{width:100%}
+  #toast{top:auto; bottom:calc(env(safe-area-inset-bottom, 0px) + 200px)}
+}
+</style>
+
+<div id="scene" aria-hidden="true"></div>
+<div id="labels"></div>
+<div id="dark"></div>
+<div id="ghost" aria-hidden="true"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9" fill="none" stroke="var(--signal)" stroke-width="1.6" stroke-dasharray="3 3"/><circle cx="11" cy="11" r="2.5" fill="var(--signal)"/></svg><span>cursor sin señal</span></div>
+<div id="keyfail" role="status" aria-live="polite"></div>
+
+<!-- HUD -->
+<header class="hud top" id="hudTop">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="15" fill="none" stroke="var(--mint)" stroke-width="1.4" stroke-dasharray="3 3"/><circle cx="17" cy="17" r="8.5" fill="none" stroke="var(--mint)" stroke-width="1.4"/><circle cx="17" cy="17" r="3" fill="var(--signal)"/></svg>
+    <div><b>LostNet</b><span class="label" id="phaseLabel">Expediente de la exposición</span></div>
+  </div>
+  <div class="caps" id="caps" aria-label="Lo que perdiste"></div>
+  <div class="tools">
+    <button class="btn" type="button" id="btnFaq"><span>?</span><span class="t">Preguntas</span></button>
+    <button class="btn" type="button" id="btnPresenter" title="Desbloquea todo para exponer (Mayús + P)"><span>▶</span><span class="t">Modo expositor</span></button>
+  </div>
+</header>
+
+<div class="hud bottom" id="hudBottom" hidden>
+  <div class="console">
+    <div class="head"><span class="label">Orquestador geoespacial · api.py</span><span class="r" id="radius">r = 2.50 km</span></div>
+    <p class="msg" id="msg">Toca el mapa donde viste tu teléfono por última vez.</p>
+    <div class="row"><button class="btn signal" type="button" id="btnPulse" disabled>Emitir geovallado · POST /report</button></div>
+    <div class="foot"><span id="latency">Latencia: —</span><span class="timer" id="timer">Buscando desde 00:00</span></div>
+  </div>
+</div>
+
+<button id="toast" type="button" aria-live="polite"><span class="label" id="toastL">Notificación push · FCM</span><b id="toastT"></b><span id="toastB"></span></button>
+
+<!-- 0 · INTRO -->
+<div class="overlay" id="intro">
+  <div class="sheet intro">
+    <p class="label">Tesina · Desarrollo de sistemas · UAA</p>
+    <h1>LostNet</h1>
+    <p class="lede">Recuperación proactiva de objetos perdidos con un geovallado dinámico de 2.5 km y alertas push en tiempo real. La exposición está lista: cinco partes, una por integrante.</p>
+    <div class="docrow">
+      <div class="doc"><b>ISO/IEC 25010</b><span>Calidad del producto · 5 características</span></div>
+      <div class="doc"><b>ISO/IEC 25012 · 25024</b><span>Calidad de los datos · 8 características</span></div>
+      <div class="doc"><b>OpenUP · PSP · TSP</b><span>Metodologías y visión a futuro</span></div>
+    </div>
+    <div class="row"><button class="btn primary" type="button" id="btnOpen">Abrir la presentación</button></div>
+    <p class="label">Recomendado: pantalla completa y sonido activado</p>
+  </div>
+</div>
+
+<!-- 1 · PÉRDIDA -->
+<div class="overlay" id="loss" hidden>
+  <div class="loss">
+    <p class="label" style="color:var(--signal)">Hace 4 minutos · última ubicación conocida</p>
+    <p class="big">Acabas de perder <em>tu teléfono.</em></p>
+    <p class="lede">Y con él, todo: no ves bien, tu cursor ya no te obedece y el teclado no responde. La presentación estaba ahí adentro. Intenta recuperarlo.</p>
+    <div class="phone">
+      <svg viewBox="0 0 44 68" aria-hidden="true"><rect x="2" y="2" width="40" height="64" rx="7" fill="none" stroke="var(--text)" stroke-width="2"/><rect x="16" y="7" width="12" height="2" rx="1" fill="var(--muted)"/><circle cx="22" cy="58" r="3" fill="none" stroke="var(--muted)" stroke-width="1.5"/></svg>
+      <div class="stats"><span>Batería del teléfono: <b id="bat">23 %</b></span><span>Distancia estimada: <b id="dist">se aleja…</b></span><span>Personas cerca con la app abierta: <b>0</b></span></div>
+    </div>
+    <div class="attempts">
+      <div class="attempt" id="a1"><h3>Llamarlo</h3><p class="res" id="r1">Quizá alguien conteste.</p><button class="btn" type="button" id="btnCall">Llamar a tu número</button></div>
+      <div class="attempt" id="a2"><h3>Buscarlo por Bluetooth</h3><div class="scan"><i id="scanBar"></i></div><p class="res" id="r2">Rastreo pasivo, como un AirTag.</p><button class="btn" type="button" id="btnScan">Escanear cerca</button></div>
+      <div class="attempt" id="a3"><h3>Reportarlo en LostNet</h3><p class="res" id="r3">Avisar a quien ya está cerca.</p><button class="btn primary" type="button" id="btnReport" disabled>Reportar</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- PANEL DE CONTENIDO -->
+<aside id="panel" aria-label="Contenido de la exposición" aria-hidden="true">
+  <div class="ph"><div><p class="label" id="pLabel"></p><h2 id="pTitle"></h2></div><button class="x" type="button" id="btnClose" aria-label="Cerrar y volver al mapa">×</button></div>
+  <div class="pb" id="pBody"></div>
+  <div class="pf"><button class="btn" type="button" id="btnPrev">← Anterior</button><span class="label" id="pStep"></span><button class="btn" type="button" id="btnNext">Siguiente →</button></div>
+</aside>
+
+<!-- FINAL -->
+<div class="overlay" id="found" hidden>
+  <div class="sheet found">
+    <p class="label" style="color:var(--mint)">Objeto recuperado</p>
+    <h1>Lo encontraste.</h1>
+    <div class="cmp">
+      <div class="good"><span class="label">Con LostNet</span><span class="n" id="fTime">0:00</span><span>Buscando activamente con un geovallado de 2.5 km.</span></div>
+      <div class="bad"><span class="label">Con rastreo pasivo</span><span class="n">0</span><span>detecciones: nadie con la app pasó junto a tu teléfono.</span></div>
+    </div>
+    <p>Eso es LostNet: no esperar a que alguien pase, sino avisar a quien ya está cerca.</p>
+    <div class="row"><button class="btn primary" type="button" id="btnReview">Repasar las 5 partes</button><button class="btn" type="button" id="btnFaq2">Preguntas frecuentes</button></div>
+  </div>
+</div>
+
+<!-- FAQ -->
+<div class="overlay" id="faq" hidden>
+  <div class="sheet">
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><p class="label">Respaldo · criterio 6</p><h2 style="font-size:2rem;margin-top:6px">Preguntas frecuentes</h2></div><button class="x" type="button" id="btnFaqClose" aria-label="Cerrar">×</button></div>
+    <div class="faq">
+      <div class="q"><h3>¿Diferencia entre ISO/IEC 25010 e ISO/IEC 25012?</h3><p>La 25010 evalúa el software: que responda en menos de 5 s y que un servidor tome el control si el otro falla. La 25012 evalúa los datos: coordenadas exactas en WGS84, registros sin corrupción gracias a ACID y datos personales cifrados.</p></div>
+      <div class="q"><h3>¿Para qué ISO/IEC 25024 si ya tienen la 25012?</h3><p>La 25012 dice qué características debe tener el dato; la 25024 da las medidas para comprobarlo, casi siempre como X = A / B. Por ejemplo, X = 1 cuando el 100 % de los campos personales están cifrados.</p></div>
+      <div class="q"><h3>¿Cómo se relacionan OpenUP, PSP y TSP?</h3><p>OpenUP guía el proyecto en 8 sprints, TSP coordina al equipo con Planning Poker y Jira/Kanban, y PSP asegura que cada integrante entregue su módulo revisado y probado.</p></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const coarse=matchMedia('(pointer: coarse)').matches;
+
+// ---------------- estado ----------------
+const CAPS=[{k:'vision',n:'Visión'},{k:'cursor',n:'Cursor'},{k:'teclado',n:'Teclado'},{k:'datos',n:'Datos'},{k:'objeto',n:'Teléfono'}];
+const S={phase:'intro', lost:{vision:false,cursor:false,teclado:false,datos:false,objeto:false}, reported:false, pulsed:false, opened:new Set(), start:0, current:-1, presenter:false, done:false};
+
+function renderCaps(){
+  $('#caps').innerHTML = S.phase==='intro' ? '' : CAPS.map(c=>`<span class="cap ${S.lost[c.k]?'':'ok'}">${c.n}</span>`).join('');
+  document.body.classList.toggle('lost-vision', S.lost.vision);
+  document.body.classList.toggle('lost-cursor', S.lost.cursor && !coarse);
+}
+
+// ---------------- audio ----------------
+let ac=null;
+function tone(f, d=.18, type='sine', v=.06, when=0){
+  try{ ac=ac||new (window.AudioContext||window.webkitAudioContext)(); const t=ac.currentTime+when; const o=ac.createOscillator(), g=ac.createGain();
+    o.type=type; o.frequency.setValueAtTime(f,t); g.gain.setValueAtTime(v,t); g.gain.exponentialRampToValueAtTime(.0001,t+d); o.connect(g).connect(ac.destination); o.start(t); o.stop(t+d+.02);}catch(e){}
+}
+const sfx={
+  glitch(){ for(let i=0;i<6;i++) tone(120+Math.random()*900,.07,'square',.035,i*.05); },
+  ring(){ for(let i=0;i<3;i++){ tone(480,.35,'sine',.05,i*.9); tone(620,.35,'sine',.04,i*.9+.05);} },
+  fail(){ tone(200,.25,'sawtooth',.04); tone(150,.3,'sawtooth',.04,.12); },
+  ping(){ tone(880,.5,'sine',.07); tone(1320,.6,'sine',.03,.08); },
+  ok(){ tone(660,.12,'triangle',.06); tone(990,.2,'triangle',.05,.1); },
+  key(){ tone(90+Math.random()*60,.06,'square',.03); }
+};
+
+// ---------------- toast / feedback ----------------
+let toastTimer, toastAction=null;
+function toast(t,b,action,label){ $('#toastT').textContent=t; $('#toastB').textContent=b; $('#toastL').textContent=label||'Notificación push · FCM'; toastAction=action||null;
+  const el=$('#toast'); el.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('show'), 6500); }
+$('#toast').addEventListener('click',()=>{ $('#toast').classList.remove('show'); if(toastAction) toastAction(); });
+let kfTimer;
+function keyFail(){ const g='#%&@!?¿¡$*§'; let s=''; for(let i=0;i<6;i++) s+=g[Math.floor(Math.random()*g.length)];
+  const el=$('#keyfail'); el.textContent='Teclado sin respuesta: '+s; el.classList.add('show'); sfx.key(); clearTimeout(kfTimer); kfTimer=setTimeout(()=>el.classList.remove('show'),900); }
+
+// ---------------- ghost cursor + oscuridad ----------------
+let mx=innerWidth/2, my=innerHeight/2, gx=mx, gy=my, t0=performance.now();
+addEventListener('pointermove',e=>{ mx=e.clientX; my=e.clientY; },{passive:true});
+addEventListener('pointerdown',e=>{ if(coarse){ mx=e.clientX; my=e.clientY; gx=mx; gy=my; } },{passive:true});
+function ghostLoop(now){
+  const t=(now-t0)/1000;
+  if(S.lost.cursor && !coarse){
+    const ox=Math.sin(t*.9)*70+Math.sin(t*2.3)*18, oy=Math.cos(t*.7)*55+Math.cos(t*1.9)*14;
+    gx+=(mx+ox-gx)*.045; gy+=(my+oy-gy)*.045;
+  } else { gx+=(mx-gx)*.35; gy+=(my-gy)*.35; }
+  const g=$('#ghost'); g.style.transform=`translate(${gx}px,${gy}px)`;
+  const d=$('#dark'); d.style.setProperty('--x',gx+'px'); d.style.setProperty('--y',gy+'px');
+  d.style.setProperty('--r', (S.lost.vision? (110+Math.sin(t*1.7)*16) : 2000)+'px');
+  requestAnimationFrame(ghostLoop);
+}
+requestAnimationFrame(ghostLoop);
+
+// ---------------- teclado ----------------
+addEventListener('keydown',e=>{
+  if(e.shiftKey && (e.key==='P'||e.key==='p')){ e.preventDefault(); presenter(); return; }
+  if(e.target.closest && e.target.closest('input')) { if(S.lost.teclado && S.phase!=='intro'){ e.preventDefault(); keyFail(); } return; }
+  if(S.phase==='intro') return;
+  if(S.lost.teclado){ if(!['Tab','Shift','Meta','Control','Alt'].includes(e.key)){ e.preventDefault(); keyFail(); } return; }
+  if(e.key==='Escape'){ if(!$('#faq').hidden){ $('#faq').hidden=true; } else closePanel(); }
+  if(e.key===' ' && S.phase==='radar' && !$('#panel').classList.contains('open')){ e.preventDefault(); if(!$('#btnPulse').disabled) pulse(); }
+  if($('#panel').classList.contains('open')){ if(e.key==='ArrowRight') nav(1); if(e.key==='ArrowLeft') nav(-1); }
+  if(/^[1-5]$/.test(e.key) && (S.presenter || S.opened.has(+e.key-1))) openClue(+e.key-1);
+});
+
+// ---------------- flujo: intro → pérdida ----------------
+let batT, distT;
+$('#btnOpen').addEventListener('click',()=>{
+  try{ const r=document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); if(r&&r.catch) r.catch(()=>{}); }catch(e){}
+  sfx.glitch(); document.querySelector('#intro .sheet').classList.add('shake');
+  setTimeout(()=>{
+    $('#intro').hidden=true; $('#loss').hidden=false;
+    S.phase='lost'; S.lost={vision:true,cursor:true,teclado:true,datos:true,objeto:true}; S.start=performance.now(); renderCaps();
+    $('#phaseLabel').textContent='Objeto perdido · rastreo pasivo';
+    let b=23; batT=setInterval(()=>{ if(b>4){ b--; $('#bat').textContent=b+' %'; } },4000);
+    setTimeout(()=>{ if($('#btnReport').disabled){ $('#btnReport').disabled=false; $('#a3').classList.add('go'); } }, 15000);
+    let k=0.3; distT=setInterval(()=>{ k+=.07+Math.random()*.05; $('#dist').textContent=k.toFixed(2)+' km y aumentando'; },1500);
+  }, reduce?0:850);
+});
+$('#btnCall').addEventListener('click',()=>{
+  const r=$('#r1'); r.textContent='Llamando…'; r.className='res'; sfx.ring(); $('#btnCall').disabled=true;
+  setTimeout(()=>{ r.textContent='Nadie contesta. Está en silencio, en un lugar donde nadie lo escucha.'; r.className='res bad'; sfx.fail(); unlockReport(); }, reduce?200:2800);
+});
+$('#btnScan').addEventListener('click',()=>{
+  const r=$('#r2'); r.textContent='Escaneando BLE…'; r.className='res'; $('#btnScan').disabled=true; $('#scanBar').style.width='100%';
+  setTimeout(()=>{ r.textContent='0 dispositivos. En zonas con poca gente, nadie pasa junto a tu teléfono: la detección cae a cero.'; r.className='res bad'; sfx.fail(); unlockReport(); }, reduce?200:2500);
+});
+function unlockReport(){ if($('#btnCall').disabled && $('#btnScan').disabled){ $('#btnReport').disabled=false; $('#a3').classList.add('go'); $('#r3').textContent='Las dos formas de siempre fallaron. Prueba la proactiva.'; } }
+$('#btnReport').addEventListener('click',()=>{
+  $('#loss').hidden=true; $('#hudBottom').hidden=false; S.phase='radar'; sfx.ok(); if(!hasGL) $('#btnPulse').disabled=false;
+  $('#phaseLabel').textContent='Reporte LostNet · elige la última ubicación';
+  setMsg('Toca el mapa donde viste tu teléfono por última vez. Tu cursor no ayuda: inténtalo.');
+});
+function setMsg(t){ $('#msg').textContent=t; }
+
+// timer
+setInterval(()=>{ if(S.start && !S.done){ const s=Math.floor((performance.now()-S.start)/1000); $('#timer').textContent='Buscando desde '+String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); } },500);
+
+// ---------------- THREE ----------------
+const R=12; // 12 unidades = 2.5 km
+const COLORS=[0x86BCFF,0x8CF2C0,0xCFE56E,0xFFB547,0xFF8F66];
+const host=$('#scene');
+let renderer, scene, camera, world, core, halo, wave, nodes=[], users, ground, rings=[], hasGL=true;
+try{
+  renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(innerWidth,innerHeight); renderer.setClearColor(0x061110,1);
+  host.appendChild(renderer.domElement);
+}catch(e){ hasGL=false; }
+if(hasGL){
+  scene=new THREE.Scene(); scene.fog=new THREE.FogExp2(0x061110,.022);
+  camera=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.1,400); camera.position.set(0,24,30); camera.lookAt(0,0,0);
+  scene.add(new THREE.AmbientLight(0x9fb8b0,.65));
+  const pl=new THREE.PointLight(0xff6b3d,2,60); pl.position.set(0,8,0); scene.add(pl);
+  world=new THREE.Group(); scene.add(world);
+
+  // terreno topográfico en malla
+  const tg=new THREE.PlaneGeometry(90,90,90,90); const pos=tg.attributes.position;
+  for(let i=0;i<pos.count;i++){ const x=pos.getX(i), y=pos.getY(i); pos.setZ(i, Math.sin(x*.18)*Math.cos(y*.15)*1.1 + Math.sin((x+y)*.07)*1.4 - 1.6); }
+  tg.computeVertexNormals();
+  const terrain=new THREE.Mesh(tg,new THREE.MeshBasicMaterial({color:0x1f4a40,wireframe:true,transparent:true,opacity:.28}));
+  terrain.rotation.x=-Math.PI/2; world.add(terrain);
+  const grid=new THREE.GridHelper(90,45,0x1d3b35,0x10241f); grid.position.y=.02; world.add(grid);
+  ground=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshBasicMaterial({visible:false})); ground.rotation.x=-Math.PI/2; world.add(ground);
+
+  // usuarios (personas con la app)
+  const N=90, up=new Float32Array(N*3), uc=new Float32Array(N*3);
+  for(let i=0;i<N;i++){ const a=Math.random()*Math.PI*2, r=4+Math.random()*36; up[i*3]=Math.cos(a)*r; up[i*3+1]=.35; up[i*3+2]=Math.sin(a)*r; uc[i*3]=.35; uc[i*3+1]=.45; uc[i*3+2]=.42; }
+  const ug=new THREE.BufferGeometry(); ug.setAttribute('position',new THREE.BufferAttribute(up,3)); ug.setAttribute('color',new THREE.BufferAttribute(uc,3));
+  users=new THREE.Points(ug,new THREE.PointsMaterial({size:.42,vertexColors:true,transparent:true,opacity:.9})); world.add(users);
+
+  // partículas
+  const P=500, pp=new Float32Array(P*3); for(let i=0;i<P;i++){ pp[i*3]=(Math.random()-.5)*90; pp[i*3+1]=Math.random()*22; pp[i*3+2]=(Math.random()-.5)*90; }
+  const pg=new THREE.BufferGeometry(); pg.setAttribute('position',new THREE.BufferAttribute(pp,3));
+  world.add(new THREE.Points(pg,new THREE.PointsMaterial({color:0x8cf2c0,size:.12,transparent:true,opacity:.35})));
+
+  // núcleo del reporte (oculto hasta tocar el mapa)
+  core=new THREE.Group();
+  const om=new THREE.Mesh(new THREE.OctahedronGeometry(1.2,0),new THREE.MeshStandardMaterial({color:0xff6b3d,emissive:0xff6b3d,emissiveIntensity:.6,flatShading:true,metalness:.3,roughness:.4}));
+  om.position.y=2.2; core.add(om); core.userData.mesh=om;
+  core.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,2.2,0)]),new THREE.LineBasicMaterial({color:0xff6b3d})));
+  halo=new THREE.Mesh(new THREE.RingGeometry(1.4,1.75,48),new THREE.MeshBasicMaterial({color:0xff6b3d,side:THREE.DoubleSide,transparent:true,opacity:.7})); halo.rotation.x=-Math.PI/2; halo.position.y=.05; core.add(halo);
+  // anillo del geovallado
+  const ringPts=new THREE.EllipseCurve(0,0,R,R,0,Math.PI*2).getPoints(160).map(p=>new THREE.Vector3(p.x,.08,p.y));
+  const fence=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ringPts),new THREE.LineDashedMaterial({color:0xffb547,dashSize:.7,gapSize:.45,transparent:true,opacity:0})); fence.computeLineDistances(); core.add(fence); core.userData.fence=fence;
+  for(let k=1;k<5;k++){ const rp=new THREE.EllipseCurve(0,0,R*k/5,R*k/5,0,Math.PI*2).getPoints(100).map(p=>new THREE.Vector3(p.x,.06,p.y));
+    const l=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(rp),new THREE.LineBasicMaterial({color:0x8cf2c0,transparent:true,opacity:0})); core.add(l); rings.push(l); }
+  wave=new THREE.Mesh(new THREE.RingGeometry(.92,1,96),new THREE.MeshBasicMaterial({color:0x8cf2c0,side:THREE.DoubleSide,transparent:true,opacity:0})); wave.rotation.x=-Math.PI/2; wave.position.y=.1; core.add(wave);
+  core.visible=false; world.add(core);
+
+  // 5 nodos = 5 personas que vieron algo = 5 partes
+  const off=[[-6.5,-4],[5.5,-6.2],[8.2,3.6],[-2.5,8.6],[-8.6,4.2]];
+  off.forEach((o,i)=>{ const g=new THREE.Group();
+    const m=new THREE.Mesh(new THREE.IcosahedronGeometry(.95,0),new THREE.MeshStandardMaterial({color:COLORS[i],emissive:COLORS[i],emissiveIntensity:.35,flatShading:true,metalness:.2,roughness:.5}));
+    m.position.y=1.8; g.add(m);
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,1.8,0)]),new THREE.LineBasicMaterial({color:COLORS[i],transparent:true,opacity:.6})));
+    const base=new THREE.Mesh(new THREE.RingGeometry(1,1.25,40),new THREE.MeshBasicMaterial({color:COLORS[i],side:THREE.DoubleSide,transparent:true,opacity:.5})); base.rotation.x=-Math.PI/2; base.position.y=.05; g.add(base);
+    g.userData={i,off:o,mesh:m}; g.visible=false; m.userData.idx=i; world.add(g); nodes.push(g);
+    const lab=document.createElement('div'); lab.className='nlabel'; lab.hidden=true; lab.style.setProperty('--c','#'+COLORS[i].toString(16).padStart(6,'0'));
+    lab.addEventListener('click',()=>tryOpen(i)); $('#labels').appendChild(lab); g.userData.label=lab;
+  });
+}
+
+// arrastre para girar + clic
+let drag=false, downX=0, downY=0, rotY=0, rotTarget=0, lastX=0;
+if(hasGL){
+  const cv=renderer.domElement;
+  cv.addEventListener('pointerdown',e=>{ drag=true; downX=lastX=e.clientX; downY=e.clientY; });
+  addEventListener('pointerup',e=>{ if(!drag) return; drag=false; if(Math.abs(e.clientX-downX)<6 && Math.abs(e.clientY-downY)<6) clickAt(e.clientX,e.clientY); });
+  addEventListener('pointermove',e=>{ if(drag){ rotTarget+= (e.clientX-lastX)*.006; lastX=e.clientX; } });
+  cv.addEventListener('wheel',e=>{ e.preventDefault(); const z=THREE.MathUtils.clamp(camera.position.z+e.deltaY*.02,16,46); camera.position.z=z; camera.position.y=z*.8; camera.lookAt(0,0,0); },{passive:false});
+}
+const ray=hasGL?new THREE.Raycaster():null, v2=hasGL?new THREE.Vector2():null;
+function clickAt(x,y){
+  if(!hasGL || S.phase!=='radar' || $('#panel').classList.contains('open')) return;
+  v2.set(x/innerWidth*2-1, -(y/innerHeight)*2+1); ray.setFromCamera(v2,camera);
+  const hit=ray.intersectObjects(nodes.filter(n=>n.visible).map(n=>n.userData.mesh));
+  if(hit.length){ tryOpen(hit[0].object.userData.idx); return; }
+  if(!S.reported){ const g=ray.intersectObject(ground); if(g.length){ const p=world.worldToLocal(g[0].point.clone()); p.x=THREE.MathUtils.clamp(p.x,-16,16); p.z=THREE.MathUtils.clamp(p.z,-12,12); placeReport(p); } }
+}
+function placeReport(p){
+  S.reported=true; core.position.set(p.x,0,p.z); core.visible=true; sfx.ok();
+  nodes.forEach(n=>{ n.position.set(p.x+n.userData.off[0],0,p.z+n.userData.off[1]); });
+  $('#btnPulse').disabled=false; $('#phaseLabel').textContent='Reporte creado · listo para emitir';
+  setMsg('Reporte creado. Ahora emite el geovallado: el servidor calcula con Haversine quién está a menos de 2.5 km.');
+  toast('Reporte recibido','POST /report · coordenadas WGS84 guardadas',null,'API Flask');
+}
+
+// pulso
+let pulseT=-1;
+$('#btnPulse').addEventListener('click',pulse);
+function pulse(){
+  if(!S.reported){ if(!hasGL){ S.reported=true; } else return; }
+  const t=performance.now(); sfx.ping(); pulseT=0; $('#btnPulse').disabled=true;
+  setTimeout(()=>{
+    const lat=(performance.now()-t)/1000; $('#latency').textContent='Reporte → alerta: '+lat.toFixed(2)+' s (meta < 5 s, simulado)';
+    if(!S.pulsed){ S.pulsed=true; revealNodes(); }
+    $('#btnPulse').disabled=false; $('#btnPulse').textContent='Volver a emitir';
+  }, reduce?100:1300);
+}
+function km(i){ const o=nodes[i]?nodes[i].userData.off:[3,3]; return (Math.hypot(o[0],o[1])/R*2.5).toFixed(2); }
+const NAMES=['Identificación y visión','Calidad del producto · ISO 25010','Seguridad y datos · 25012 / 25024','Calidad de los datos · 25012 / 25024','Metodologías y visión a futuro'];
+function revealNodes(){
+  nodes.forEach((n,i)=>{ n.visible=true; n.userData.label.hidden=false; n.userData.label.innerHTML=`<b>${i+1}</b> · ${km(i)} km · Participante ${i+1}`; });
+  if(hasGL){ const c=users.geometry.attributes.color, p=users.geometry.attributes.position;
+    for(let i=0;i<p.count;i++){ const d=Math.hypot(p.getX(i)-core.position.x,p.getZ(i)-core.position.z); if(d<=R){ c.setXYZ(i,.55,.95,.75); } } c.needsUpdate=true; }
+  $('#phaseLabel').textContent='Geovallado activo · 5 personas cerca';
+  setMsg('Cinco personas dentro del geovallado vieron algo. Toca cada punto para recuperar lo que perdiste. Empieza por el 1.');
+  toast('5 personas cerca vieron algo','La más cercana está a '+km(0)+' km. Toca aquí para ir al punto 1.',()=>tryOpen(0));
+}
+function tryOpen(i){
+  if(!S.presenter && !S.pulsed) return;
+  const next=[...Array(5).keys()].find(k=>!S.opened.has(k));
+  if(!S.presenter && !S.opened.has(i) && i!==next){ toast('Ese punto todavía no responde','Sigue el orden: primero el punto '+(next+1)+'.',()=>tryOpen(next),'LostNet'); sfx.fail(); return; }
+  openClue(i);
+}
+
+// ---------------- panel ----------------
+const RESTORE=[
+  ['vision','Recuperaste la visión','La primera persona te dijo dónde mirar. Así funciona LostNet: no espera, avisa.'],
+  ['cursor','Recuperaste el cursor','Un sistema rápido y estable responde cuando lo necesitas: eso exige la ISO 25010.'],
+  ['teclado','Recuperaste el teclado','Tus datos estaban cifrados: nadie pudo usarlos mientras estuvieron perdidos.'],
+  ['datos','Recuperaste tus datos','Nada se perdió ni se duplicó: la base de datos garantiza ACID y recuperación.'],
+  ['objeto','Recuperaste tu teléfono','El método detrás del producto: así lo construimos y así lo haremos crecer.']
+];
+function openClue(i){
+  S.current=i; const first=!S.opened.has(i); S.opened.add(i);
+  const C=CONTENT[i]; const col=['--p1','--p2','--p3','--p4','--p5'][i];
+  const panel=$('#panel'); panel.style.setProperty('--pc','var('+col+')');
+  $('#pLabel').innerHTML=`<b>Participante ${i+1}</b> · ${C.crit}`; $('#pTitle').textContent=C.title;
+  let restored='';
+  if(first && !S.presenter){ const r=RESTORE[i]; if(S.lost[r[0]]){ S.lost[r[0]]=false; renderCaps(); sfx.ok(); } restored=`<div class="restored"><span class="label">${r[1]}</span><p>${r[2]}</p></div>`; }
+  $('#pBody').innerHTML=restored+C.html(); $('#pBody').scrollTop=0;
+  $('#pStep').textContent='Parte '+(i+1)+' de 5';
+  $('#btnPrev').disabled=i===0; $('#btnNext').textContent= i===4 ? 'Terminar' : 'Siguiente →';
+  panel.classList.add('open'); panel.setAttribute('aria-hidden','false');
+  const lab=nodes[i]&&nodes[i].userData.label; if(lab) lab.classList.add('done');
+  bindDemos(i);
+}
+function closePanel(){ const p=$('#panel'); if(!p.classList.contains('open')) return; p.classList.remove('open'); p.setAttribute('aria-hidden','true');
+  if(S.opened.size===5 && !S.done && !S.presenter){ finish(); return; }
+  const next=[...Array(5).keys()].find(k=>!S.opened.has(k));
+  if(next!==undefined && S.pulsed && !S.presenter){ setMsg('Siguiente: el punto '+(next+1)+', a '+km(next)+' km.'); toast('Otra persona vio algo','Punto '+(next+1)+' · '+km(next)+' km. Toca aquí para ir.',()=>tryOpen(next)); }
+}
+function nav(d){ const i=S.current+d; if(i<0) return; if(i>4){ closePanel(); return; }
+  if(!S.presenter && !S.opened.has(i)){ const next=[...Array(5).keys()].find(k=>!S.opened.has(k)); if(i!==next){ return; } }
+  openClue(i); }
+$('#btnClose').addEventListener('click',closePanel);
+$('#btnPrev').addEventListener('click',()=>nav(-1));
+$('#btnNext').addEventListener('click',()=>nav(1));
+
+function finish(){
+  S.done=true; S.lost.objeto=false; renderCaps();
+  const s=Math.floor((performance.now()-S.start)/1000); $('#fTime').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+  $('#phaseLabel').textContent='Objeto recuperado'; $('#found').hidden=false; sfx.ok(); clearInterval(batT); clearInterval(distT);
+}
+$('#btnReview').addEventListener('click',()=>{ $('#found').hidden=true; presenter(true); openClue(0); });
+$('#btnFaq').addEventListener('click',()=>{ $('#faq').hidden=false; });
+$('#btnFaq2').addEventListener('click',()=>{ $('#found').hidden=true; $('#faq').hidden=false; });
+$('#btnFaqClose').addEventListener('click',()=>{ $('#faq').hidden=true; });
+
+function presenter(force){
+  S.presenter = force===true ? true : !S.presenter;
+  if(S.presenter){
+    $('#intro').hidden=true; $('#loss').hidden=true; $('#hudBottom').hidden=false;
+    S.phase='radar'; Object.keys(S.lost).forEach(k=>S.lost[k]=false); renderCaps();
+    if(!S.reported && hasGL) placeReport(new THREE.Vector3(0,0,0)); else S.reported=true;
+    if(!S.pulsed){ S.pulsed=true; revealNodes(); }
+    $('#phaseLabel').textContent='Modo expositor · todo desbloqueado';
+    setMsg('Modo expositor: toca cualquier punto o usa las teclas 1 a 5. Con el panel abierto, ← y → cambian de parte.');
+    $('#btnPresenter').querySelector('.t').textContent='Salir de expositor';
+  } else { $('#btnPresenter').querySelector('.t').textContent='Modo expositor'; }
+}
+$('#btnPresenter').addEventListener('click',()=>presenter());
+
+// ---------------- demos ----------------
+function bindDemos(i){
+  const q=s=>$('#pBody').querySelector(s);
+  if(i===1){
+    const run=(mode)=>{ const bar=q('#lat i'), out=q('#latOut'); bar.style.transition='none'; bar.style.width='0'; void bar.offsetWidth;
+      const secs = mode==='serie' ? 18.4 : 0.42; bar.style.transition='width '+(mode==='serie'?3.2:.35)+'s linear'; bar.style.width = mode==='serie' ? '100%' : '2.3%';
+      out.textContent = mode==='serie' ? 'En serie: '+secs+' s. Quien podía ayudar ya salió de la zona.' : 'Con hilos: '+secs+' s. La alerta llega a tiempo.'; };
+    q('#bSerie').onclick=()=>run('serie'); q('#bHilos').onclick=()=>run('hilos');
+    q('#bFail').onclick=()=>{ const a=q('#s1'), b=q('#s2'), o=q('#failOut'); a.className='srv down'; a.querySelector('span').textContent='Caído'; o.textContent='Detectando la caída…'; sfx.fail();
+      setTimeout(()=>{ b.className='srv live'; b.querySelector('span').textContent='Atendiendo reportes'; o.textContent='El servidor 2 tomó el control en 1.8 s (meta ≤ 30 s). Ningún reporte se perdió.'; sfx.ok(); }, reduce?100:1800);
+      setTimeout(()=>{ a.className='srv'; a.querySelector('span').textContent='En línea, sincronizando'; }, reduce?200:4200); };
+  }
+  if(i===2){
+    const inp=q('#pii'), out=q('#cipher');
+    let key=null;
+    const enc=async()=>{ const v=inp.value||' ';
+      try{ key=key||await crypto.subtle.generateKey({name:'AES-GCM',length:128},false,['encrypt']); const iv=crypto.getRandomValues(new Uint8Array(12));
+        const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},key,new TextEncoder().encode(v)));
+        out.textContent=btoa(String.fromCharCode(...iv,...ct)); }
+      catch(e){ out.textContent=btoa(unescape(encodeURIComponent(v))).split('').reverse().join('')+'  (vista simplificada)'; } };
+    inp.addEventListener('input',enc); enc();
+  }
+  if(i===3){
+    const run=(acid)=>{ const o=q('#ccOut'); o.textContent='Dos personas reportan al mismo tiempo…';
+      setTimeout(()=>{ o.textContent= acid ? 'Base relacional ACID: 2 de 2 reportes guardados, sin conflicto. X = 1.' : 'Archivo plano: 1 de 2 reportes guardados. Uno se perdió. X = 0.5.'; acid?sfx.ok():sfx.fail(); }, reduce?100:900); };
+    q('#bFlat').onclick=()=>run(false); q('#bAcid').onclick=()=>run(true);
+  }
+  if(i===4){
+    q('#poker').querySelectorAll('button').forEach(b=>b.onclick=()=>{ q('#pokerOut').textContent='Estimaste '+b.textContent+' puntos. En TSP, si alguien votó muy distinto, se discute antes de comprometerse.'; sfx.ok(); });
+  }
+}
+
+// ---------------- contenido ----------------
+const tile=(t,s,cls='')=>`<div class="tile ${cls}"><b>${t}</b>${s?`<span>${s}</span>`:''}</div>`;
+const why=(t)=>`<p class="why"><span class="label">Por qué importa al usuario</span>${t}</p>`;
+const chips=a=>`<div class="chips">${a.map(x=>`<span>${x}</span>`).join('')}</div>`;
+const ficha=rows=>`<dl class="ficha">${rows.map(r=>`<div><dt>${r[0]}</dt><dd>${r[1]}</dd></div>`).join('')}</dl>`;
+const CONTENT=[
+{ crit:'Criterio 1 · 10 pts', title:'Identificación y visión del producto', html:()=>`
+  <section class="blk"><p class="label">El problema</p><h3>Dos fallas que dejan el objeto perdido</h3>
+    <div class="grid2">${tile('Rastreo pasivo (BLE, AirTag)','Depende de que alguien con la app pase justo al lado del objeto. Con poca gente, la detección cae a cero. Lo acabas de vivir al escanear.')}
+    ${tile('Archivos planos centralizados','Las escrituras simultáneas pierden transacciones y la información personal (PII) queda expuesta.')}</div></section>
+  <section class="blk"><p class="label">La solución</p><h3>Un geovallado que sale a buscar</h3>
+    <ol class="steps"><li>El usuario reporta el objeto con sus coordenadas GPS (<code>POST /report</code>).</li><li>El servidor crea un perímetro de 2.5 km con la fórmula de Haversine.</li><li>Un usuario activo cruza el perímetro.</li><li>Recibe una notificación push inmediata. Sin hardware: 100 % software.</li></ol></section>
+  <section class="blk"><p class="label">Arquitectura del MVP</p><h3>Tres piezas, dos públicos</h3>
+    <div class="grid3">${tile('App Android','Kotlin + MVVM, GPS, Google Maps SDK, OAuth 2.0 y push con FCM.')}${tile('API REST Flask','api.py: geovallado con Haversine, hilos en segundo plano y cifrado Fernet.')}${tile('Dashboard Astro','Métricas, geovallados activos y estado de reportes en tiempo real.')}</div>
+    <div class="grid2">${tile('Ciudadanos','Recuperan sus cosas sin comprar ningún dispositivo.')}${tile('Autoridades y administradores','Monitorean reportes y métricas desde el panel web.')}</div></section>`},
+{ crit:'Criterio 3 · 10 de 20 pts', title:'Calidad del producto con ISO/IEC 25010', html:()=>`
+  <section class="blk"><p class="label">Por qué una norma</p><h3>La familia SQuaRE (ISO/IEC 25000)</h3>
+    <p>Usamos tres de sus normas: <b>25010</b> (modelo de calidad del producto), <b>25012</b> (modelo de calidad de los datos) y <b>25024</b> (cómo medir la calidad de los datos). Nos dan un lenguaje común, vuelven la calidad medible y son el estándar con el que la industria especifica y evalúa software.</p></section>
+  <section class="blk"><p class="label">Selección</p><h3>De 9 características, elegimos 5</h3>
+    <p>Criterio: priorizamos las que, si fallan, impiden recuperar el objeto.</p>
+    <div class="grid3">${tile('Adecuación funcional','La función central.','on')}${tile('Eficiencia del desempeño','La alerta llega a tiempo.','on')}${tile('Fiabilidad','El servicio siempre disponible.','on')}${tile('Seguridad','Ubicación y datos personales.','on')}${tile('Compatibilidad','Dependemos de Maps y FCM.','on')}${tile('Capacidad de interacción','Siguiente iteración.','off')}${tile('Mantenibilidad','Apoyada en MVVM; tras el MVP.','off')}${tile('Flexibilidad','Al migrar a la nube.','off')}${tile('Seguridad operacional','Guías de entrega segura.','off')}</div></section>
+  <section class="blk"><p class="label">1 · Adecuación funcional</p><h3>Funciones exactas para su objetivo</h3>
+    <p class="formula">d = 2r · asin( √( sin²(Δφ/2) + cos φ₁ · cos φ₂ · sin²(Δλ/2) ) ),  r ≈ 6,371 km</p>
+    ${chips(['Completitud funcional','Corrección funcional','Pertinencia funcional'])}
+    ${why('Si el perímetro se calcula mal, avisamos a la persona equivocada o a nadie.')}</section>
+  <section class="blk"><p class="label">2 · Eficiencia del desempeño</p><h3>Meta: menos de 5 segundos</h3>
+    <div class="demo"><p class="label">Pruébalo · simulación</p><div class="row"><button class="btn" type="button" id="bSerie">Procesar en serie</button><button class="btn" type="button" id="bHilos">Con hilos (ThreadPoolExecutor)</button></div><div class="bar" id="lat"><i></i></div><p class="out" id="latOut">Elige un modo para ver cuánto tarda la alerta.</p></div>
+    ${chips(['Comportamiento temporal','Utilización de recursos','Capacidad'])}
+    ${why('Quien puede ayudar va en movimiento: una alerta tardía ya no sirve.')}</section>
+  <section class="blk"><p class="label">3 · Fiabilidad</p><h3>Meta: 99.9 % de disponibilidad</h3>
+    <div class="demo"><p class="label">Pruébalo · simulación de failover</p>
+      <div class="servers"><div class="srv live" id="s1"><b>Servidor 1</b><span>API, base de datos y cifrado</span></div><div class="srv" id="s2"><b>Servidor 2</b><span>Réplica en espejo</span></div></div>
+      <div class="row"><button class="btn" type="button" id="bFail">Apagar el servidor 1</button></div><p class="out" id="failOut">Los dos servidores Ubuntu están sincronizados.</p></div>
+    ${chips(['Ausencia de fallos','Disponibilidad','Tolerancia a fallos','Recuperabilidad'])}
+    ${why('Un objeto se pierde a cualquier hora: si el servidor cae, el reporte se pierde.')}</section>`},
+{ crit:'Criterios 3 y 4 · 20 pts', title:'Seguridad, compatibilidad y calidad de los datos', html:()=>`
+  <section class="blk"><p class="label">ISO/IEC 25010 · 4 y 5</p><h3>Seguridad y compatibilidad</h3>
+    <div class="grid2">${tile('Seguridad','OAuth 2.0 con Google Identity, cifrado Fernet (AES-128) y gestión de claves con rotación.')}${tile('Compatibilidad','API REST como contrato común, Google Maps SDK y Firebase Cloud Messaging.')}</div>
+    ${chips(['Confidencialidad','Integridad','Autenticidad','Coexistencia','Interoperabilidad'])}
+    ${why('Un reporte revela dónde está alguien y qué perdió. Y sin Maps no hay mapa, ni alerta sin FCM.')}</section>
+  <section class="blk"><p class="label">Tres normas, tres preguntas</p>
+    <div class="tw"><table><tr><th>Norma</th><th>Pregunta</th><th>Evalúa</th></tr><tr><td>ISO/IEC 25010</td><td>¿El software funciona bien?</td><td>El motor</td></tr><tr><td>ISO/IEC 25012</td><td>¿Qué calidad deben tener los datos?</td><td>La materia prima</td></tr><tr><td>ISO/IEC 25024</td><td>¿Cómo lo medimos?</td><td>La regla</td></tr></table></div></section>
+  <section class="blk"><p class="label">ISO/IEC 25012</p><h3>De 15 características del dato, elegimos 8</h3>
+    <p>Nuestros datos críticos: coordenadas GPS, datos personales y reportes.</p>
+    <p class="label">Inherentes</p><div class="grid3">${tile('Exactitud','','on')}${tile('Consistencia','','on')}${tile('Actualidad','','on')}${tile('Completitud','','off')}${tile('Credibilidad','','off')}</div>
+    <p class="label">Inherentes y del sistema</p><div class="grid3">${tile('Confidencialidad','','on')}${tile('Eficiencia','','on')}${tile('Precisión','','on')}${tile('Accesibilidad','','off')}${tile('Cumplimiento','','off')}${tile('Trazabilidad','','off')}${tile('Comprensibilidad','','off')}</div>
+    <p class="label">Dependientes del sistema</p><div class="grid3">${tile('Disponibilidad','','on')}${tile('Recuperabilidad','','on')}${tile('Portabilidad','','off')}</div></section>
+  <section class="blk"><p class="label">ISO/IEC 25024</p><h3>Cómo convertimos una característica en un número</h3>
+    <p class="metric">X = A / B</p><p>A = elementos que cumplen · B = elementos evaluados. X va de 0 a 1: entre más cerca de 1, mejor. Las medidas de tiempo, como la recuperabilidad, se expresan en segundos.</p></section>
+  <section class="blk"><p class="label">1 · Confidencialidad</p><h3>Ningún dato personal en texto plano</h3>
+    ${ficha([['Dato','Información personal identificable (PII) de los usuarios.'],['Cómo lo aplicamos','Cifrado Fernet (AES-128) al leer y escribir; búsquedas sobre índices con valores hasheados.'],['Medida ISO 25024','X = campos PII cifrados ÷ campos PII totales. Meta: X = 1.'],['Por qué importa','Nombre, contacto y ubicación expuestos facilitan robo o acoso.']])}
+    <div class="demo"><p class="label">Pruébalo · cifrado real con AES en tu navegador</p><input id="pii" type="text" value="Gustavo · 449 123 4567 · 21.8853, -102.2916" aria-label="Dato personal a cifrar"><p class="out" id="cipher"></p><p class="label">LostNet usa Fernet (AES-128 con HMAC); aquí se muestra AES-GCM de 128 bits del navegador.</p></div></section>
+  <section class="blk"><p class="label">2 · Exactitud y precisión</p><h3>Coordenadas que reflejan la realidad</h3>
+    ${ficha([['Dato','Pares de coordenadas GPS de cada reporte, en WGS84.'],['Cómo lo aplicamos','Distancias con trigonometría esférica (asin en Haversine), sin redondear coordenadas.'],['Medida ISO 25024','X = distancias calculadas correctamente ÷ distancias evaluadas. Meta: X = 1.'],['Por qué importa','Un error de cientos de metros deja fuera a quien estaba cerca.']])}</section>`},
+{ crit:'Criterio 4 · 10 de 20 pts', title:'Calidad de los datos con ISO/IEC 25012 y 25024', html:()=>`
+  <section class="blk"><p class="label">3 · Consistencia</p><h3>Reportes simultáneos sin corrupción</h3>
+    ${ficha([['Dato','Transacciones de reportes que llegan al mismo tiempo.'],['Cómo lo aplicamos','De archivos planos a una base relacional SQL con bloqueo de escritura, aislamiento configurable y garantías ACID.'],['Medida ISO 25024','X = transacciones concurrentes sin conflicto ÷ transacciones totales. Meta: X = 1.'],['Por qué importa','Si dos reportes se pisan, un objeto desaparece o aparece duplicado.']])}
+    <div class="demo"><p class="label">Pruébalo · simulación</p><div class="row"><button class="btn" type="button" id="bFlat">Guardar en archivo plano</button><button class="btn" type="button" id="bAcid">Guardar en base ACID</button></div><p class="out" id="ccOut">Dos personas van a reportar en el mismo instante.</p></div></section>
+  <section class="blk"><p class="label">4 · Recuperabilidad y disponibilidad</p><h3>Si un servidor cae, los datos vuelven</h3>
+    <p class="metric">≤ 30 s</p>
+    ${ficha([['Dato','Registros de la base de datos relacional.'],['Cómo lo aplicamos','Replicación entre servidores y Write-Ahead Logging (WAL): cada cambio se anota antes de aplicarse.'],['Medida ISO 25024','Tiempo de recuperación tras la caída; disponibilidad X = tiempo disponible ÷ tiempo total.'],['Por qué importa','Un reporte perdido es un objeto que nadie va a buscar.']])}</section>
+  <section class="blk"><p class="label">5 · Actualidad y eficiencia</p><h3>Datos al día, con pocos recursos</h3>
+    <p class="metric">&lt; 5 s · ≈ 1.5×</p>
+    ${ficha([['Dato','Ubicación de usuarios activos y estado de los geovallados.'],['Cómo lo aplicamos','Procesamiento en segundo plano, desde el reporte hasta elegir a quién avisar.'],['Medida ISO 25024','X = registros actualizados a tiempo ÷ registros; eficiencia en transacciones por segundo frente a soluciones no ACID.'],['Por qué importa','Con una ubicación vieja, la alerta llega a quien ya se fue.']])}</section>
+  <section class="blk"><p class="label">Resumen</p><h3>Cinco características, cinco metas</h3>
+    <div class="tw"><table><tr><th>Característica</th><th>Dato</th><th>Meta</th></tr><tr><td>Confidencialidad</td><td>PII de usuarios</td><td>X = 1</td></tr><tr><td>Exactitud y precisión</td><td>Coordenadas GPS</td><td>X = 1</td></tr><tr><td>Consistencia</td><td>Reportes concurrentes</td><td>X = 1</td></tr><tr><td>Recuperabilidad</td><td>Registros de la BD</td><td>≤ 30 s</td></tr><tr><td>Actualidad y eficiencia</td><td>Ubicación y geovallados</td><td>&lt; 5 s</td></tr></table></div></section>`},
+{ crit:'Criterios 5 y 8 · 20 pts', title:'Metodologías y visión a futuro', html:()=>`
+  <section class="blk"><p class="label">OpenUP</p><h3>Iterativo e incremental, guiado por riesgos</h3>
+    <ul class="pl"><li><b>8 sprints</b> para avanzar por entregas.</li><li><b>4 épicas:</b> Android, Geofencing, Infraestructura y Seguridad.</li><li><b>MoSCoW</b> (Must, Should, Could, Won’t): lo «Must» define el MVP.</li></ul></section>
+  <section class="blk"><p class="label">PSP y TSP</p><h3>Disciplina individual, trabajo en equipo</h3>
+    <div class="grid2">${tile('PSP · cada ingeniero','Mide su tiempo, revisa su código, registra defectos y prueba a fondo Haversine y Fernet.')}${tile('TSP · el equipo','Planning Poker con Fibonacci, Jira y Kanban, metas de calidad compartidas y auditoría SAST/DAST.')}</div>
+    <div class="demo"><p class="label">Pruébalo · Planning Poker</p><p>¿Cuánto esfuerzo le darías a «enviar notificaciones push en lote»?</p><div class="row" id="poker"><button class="btn" type="button">1</button><button class="btn" type="button">2</button><button class="btn" type="button">3</button><button class="btn" type="button">5</button><button class="btn" type="button">8</button><button class="btn" type="button">13</button></div><p class="out" id="pokerOut">Elige una carta.</p></div></section>
+  <section class="blk"><p class="label">Cómo encajan</p>
+    <div class="nest"><b>OpenUP · proyecto</b>Los 8 sprints guían las iteraciones.<div class="nest"><b>TSP · equipo</b>Planning Poker y Jira/Kanban coordinan a todos.<div class="nest"><b>PSP · individuo</b>Cada quien entrega su módulo limpio y probado.</div></div></div></section>
+  <section class="blk"><p class="label">Por qué estas metodologías</p>
+    <div class="tw"><table><tr><th>Método</th><th>Cómo ayuda a la calidad de LostNet</th></tr><tr><td>OpenUP</td><td>Atacamos primero lo más riesgoso (Haversine, cifrado) y validamos la adecuación funcional en cada sprint.</td></tr><tr><td>PSP</td><td>Menos defectos en módulos críticos: más fiabilidad y seguridad.</td></tr><tr><td>TSP</td><td>Las metas ISO (&lt; 5 s, X = 1 en cifrado, ≤ 30 s) se vuelven compromisos con seguimiento.</td></tr></table></div></section>
+  <section class="blk"><p class="label">Visión a futuro</p><h3>De MVP a servicio ciudadano</h3>
+    <div class="grid2">${tile('Despliegue productivo','Servidores replicados disponibles 24/7.')}${tile('Pruebas de carga','Concurrencia real medida antes del lanzamiento.')}${tile('Auditorías SAST/DAST','Seguridad revisada en el código y en ejecución.')}${tile('CI/CD automatizado','Cada cambio se prueba y despliega solo.')}</div></section>
+  <section class="blk"><p class="label">Criterio 8 · coherencia</p><h3>Visión y calidad, conectadas</h3>
+    <div class="tw"><table><tr><th>Queremos</th><th>Atributos</th><th>Proceso</th></tr><tr><td>Alertas a tiempo en la ciudad</td><td>Eficiencia · Actualidad</td><td>Pruebas de carga</td></tr><tr><td>Servicio 24/7</td><td>Fiabilidad · Recuperabilidad</td><td>Réplica y WAL</td></tr><tr><td>Confianza ciudadana</td><td>Seguridad · Confidencialidad</td><td>SAST/DAST</td></tr><tr><td>Crecer sin romper</td><td>Compatibilidad · Consistencia</td><td>CI/CD</td></tr><tr><td>El objeto correcto</td><td>Adecuación · Exactitud</td><td>OpenUP</td></tr></table></div></section>`}
+];
+
+// ---------------- render loop ----------------
+renderCaps();
+const clock=hasGL?new THREE.Clock():null; const tmp=hasGL?new THREE.Vector3():null;
+function loop(){
+  requestAnimationFrame(loop);
+  if(!hasGL) return;
+  const t=clock.getElapsedTime(), dt=Math.min(clock.getDelta(),.05);
+  if(!drag) rotTarget+= reduce?0:.0009;
+  rotY+=(rotTarget-rotY)*.08; world.rotation.y=rotY;
+  if(core.visible){ core.userData.mesh.rotation.y=t*1.2; core.userData.mesh.position.y=2.2+Math.sin(t*2)*.15; halo.scale.setScalar(1+Math.sin(t*3)*.08);
+    const f=core.userData.fence.material; f.opacity+=((S.pulsed?.85:0)-f.opacity)*.05; rings.forEach(r=>r.material.opacity+=((S.pulsed?.18:0)-r.material.opacity)*.05); }
+  if(pulseT>=0){ pulseT+=1/60; const k=Math.min(pulseT/1.25,1); wave.scale.setScalar(.5+k*R); wave.material.opacity=(1-k)*.8; if(k>=1){ pulseT=-1; wave.material.opacity=0; } }
+  nodes.forEach((n,i)=>{ if(!n.visible) return; const m=n.userData.mesh; m.rotation.y=t*(.6+i*.1); m.rotation.x=t*.4; m.position.y=1.8+Math.sin(t*1.6+i)*.18;
+    const s=S.opened.has(i)?.75:1+Math.sin(t*3+i)*.06; m.scale.setScalar(s);
+    tmp.set(0,2.9,0); m.parent.localToWorld(tmp.copy(m.position).add(new THREE.Vector3(0,1,0))); tmp.project(camera);
+    const lab=n.userData.label; const x=(tmp.x*.5+.5)*innerWidth, y=(-tmp.y*.5+.5)*innerHeight; lab.style.left=x+'px'; lab.style.top=y+'px'; lab.style.visibility = tmp.z<1 ? 'visible':'hidden'; });
+  renderer.render(scene,camera);
+}
+loop();
+addEventListener('resize',()=>{ if(!hasGL) return; camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+if(!hasGL){ $('#msg').textContent='Tu navegador no muestra el mapa 3D. Emite el geovallado con el botón.'; }
+})();
+</script>
+
+</body></html>
